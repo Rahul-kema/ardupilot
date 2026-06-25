@@ -517,7 +517,8 @@ def load_env_vars(env):
     for k in e.keys():
         v = e[k]
         if k == 'ROMFS_FILES':
-            env.ROMFS_FILES += v
+            if not env.BOOTLOADER:
+                env.ROMFS_FILES += v
             continue
         if k in env:
             if isinstance(env[k], dict):

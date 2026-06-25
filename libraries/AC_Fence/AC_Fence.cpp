@@ -26,9 +26,9 @@ extern const AP_HAL::HAL& hal;
 #endif
 
 // default boundaries
-#define AC_FENCE_ALT_MAX_DEFAULT                    100.0f  // default max altitude is 100m
+#define AC_FENCE_ALT_MAX_DEFAULT                    120.0f  // LOCKED: max altitude 120m AGL
 #define AC_FENCE_ALT_MIN_DEFAULT                    -10.0f  // default maximum depth in meters
-#define AC_FENCE_CIRCLE_RADIUS_DEFAULT              300.0f  // default circular fence radius is 300m
+#define AC_FENCE_CIRCLE_RADIUS_DEFAULT              1000.0f // LOCKED: geofence radius 1000m
 #define AC_FENCE_ALT_MAX_BACKUP_DISTANCE            20.0f   // after fence is broken we recreate the fence 20m further up
 #define AC_FENCE_ALT_MIN_BACKUP_DISTANCE            20.0f   // after fence is broken we recreate the fence 20m further down
 #define AC_FENCE_MARGIN_DEFAULT                     2.0f    // default distance in meters that autopilot's should maintain from the fence to avoid a breach

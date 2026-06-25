@@ -22,12 +22,27 @@
  *
  */
 
-#if FRAME_CONFIG == HELI_FRAME
+//#if FRAME_CONFIG == HELI_FRAME
 // 6 here is AP_Motors::MOTOR_FRAME_HELI
-#define DEFAULT_FRAME_CLASS 6
+//#define DEFAULT_FRAME_CLASS 6
+//#else
+//#define DEFAULT_FRAME_CLASS 13 // LOCKED: Hex X frame
+//#endif
+
+
+#if FRAME_CONFIG == HELI_FRAME
+    // 6 here is AP_Motors::MOTOR_FRAME_HELI
+    #define DEFAULT_FRAME_CLASS 6
+#elif FRAME_CONFIG == HEXA_FRAME
+    #define DEFAULT_FRAME_CLASS 2   // AP_Motors::MOTOR_FRAME_HEXA
+
+#elif FRAME_CONFIG == QUAD_FRAME
+    #define DEFAULT_FRAME_CLASS 0   // AP_Motors::MOTOR_FRAME_QUAD
+
 #else
-#define DEFAULT_FRAME_CLASS 0
+    #define DEFAULT_FRAME_CLASS 2   // LOCKED: Hex X frame (default fallback)
 #endif
+
 
 const AP_Param::Info Copter::var_info[] = {
     // @Param: FORMAT_VERSION

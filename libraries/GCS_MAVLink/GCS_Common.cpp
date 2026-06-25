@@ -20,7 +20,7 @@
 #if HAL_GCS_ENABLED
 
 #include "GCS.h"
-
+#include "KFT_GCSAuth.h"
 #include <AC_Fence/AC_Fence.h>
 #include <AP_Compass/AP_Compass.h>
 #include <AP_ADSB/AP_ADSB.h>
@@ -1797,6 +1797,10 @@ void GCS_MAVLINK::packetReceived(const mavlink_status_t &status,
     // make it possible to use the CLI over the radio
     if (msg.msgid != MAVLINK_MSG_ID_RADIO && msg.msgid != MAVLINK_MSG_ID_RADIO_STATUS) {
         mavlink_active |= (1U<<(chan-MAVLINK_COMM_0));
+        // KFT: Track ALL incoming heartbeats for auth timeout, before any filtering
+    if (msg.msgid == MAVLINK_MSG_ID_HEARTBEAT) {
+        KFT_GCSAuth::note_heartbeat();
+    }
     }
     const auto mavlink_protocol = uartstate->get_protocol();
     if (!(status.flags & MAVLINK_STATUS_FLAG_IN_MAVLINK1) &&
@@ -4160,6 +4164,42 @@ void GCS_MAVLINK::handle_heartbeat(const mavlink_message_t &msg) const
  */
 void GCS_MAVLINK::handle_message(const mavlink_message_t &msg)
 {
+    // ===== KFT DGCA GCS AUTHENTICATION GATE - START =====
+    // Track heartbeats for link timeout detection
+    //if (msg.msgid == MAVLINK_MSG_ID_HEARTBEAT) {
+      //  KFT_GCSAuth::note_heartbeat();
+    //}
+ 
+    // Check for auth timeout
+    KFT_GCSAuth::check_timeout();
+ 
+    // Only allow HEARTBEAT and auth commands before authentication
+    if (!KFT_GCSAuth::is_authenticated()) {
+        switch (msg.msgid) {
+        case MAVLINK_MSG_ID_HEARTBEAT:
+            break;  // Allow heartbeats so GCS can discover the drone
+        case MAVLINK_MSG_ID_COMMAND_LONG: {
+            mavlink_command_long_t cmd;
+            mavlink_msg_command_long_decode(&msg, &cmd);
+            if (cmd.command == MAV_CMD_USER_1 || cmd.command == MAV_CMD_USER_2) {
+                break;
+            }
+            return;
+        }
+        case MAVLINK_MSG_ID_COMMAND_INT: {
+            mavlink_command_int_t cmd;
+            mavlink_msg_command_int_decode(&msg, &cmd);
+            if (cmd.command == MAV_CMD_USER_1 || cmd.command == MAV_CMD_USER_2) {
+                break;
+            }
+            return;
+        }
+        default:
+            return;
+        }
+    }
+
+    // ===== KFT DGCA GCS AUTHENTICATION GATE - END =====
     switch (msg.msgid) {
 
     case MAVLINK_MSG_ID_HEARTBEAT: {
@@ -5183,6 +5223,60 @@ void GCS_MAVLINK::handle_command_long(const mavlink_message_t &msg)
 
     hal.util->persistent_data.last_mavlink_cmd = packet.command;
 
+    // ===== KFT AUTH: Handle USER_2 directly from COMMAND_LONG =====
+
+    // Must intercept here because try_command_long_as_command_int
+
+    // converts param5/param6 from float to int32, destroying HMAC bytes
+
+    if (packet.command == MAV_CMD_USER_2) {
+
+        uint8_t app_id = (uint8_t)packet.param1;
+
+        uint8_t received_hmac[KFT_HMAC_TRUNC_LEN];
+
+        // All 6 params are float in COMMAND_LONG — extract raw bytes via memcpy
+
+        memcpy(&received_hmac[0],  &packet.param2, 4);
+
+        memcpy(&received_hmac[4],  &packet.param3, 4);
+
+        memcpy(&received_hmac[8],  &packet.param4, 4);
+
+        memcpy(&received_hmac[12], &packet.param5, 4);
+
+        memcpy(&received_hmac[16], &packet.param6, 4);
+
+        memcpy(&received_hmac[20], &packet.param7, 4);
+
+        MAV_RESULT result;
+
+        if (KFT_GCSAuth::verify_hmac(app_id, received_hmac, KFT_HMAC_TRUNC_LEN)) {
+
+            GCS_SEND_TEXT(MAV_SEVERITY_INFO, "KFT: %s authenticated",
+
+                          KFT_GCSAuth::find_app(app_id)->name);
+            KFT_GCSAuth::send_post_status();
+            result = MAV_RESULT_ACCEPTED;
+
+        } else {
+
+            GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "KFT Auth: HMAC failed for app %u", app_id);
+
+            result = MAV_RESULT_DENIED;
+
+        }
+
+        mavlink_msg_command_ack_send(chan, packet.command, result,
+
+                                     0, 0, msg.sysid, msg.compid);
+
+        return;
+
+    }
+
+    // ===== KFT AUTH: End USER_2 intercept =====
+ 
     const MAV_RESULT result = try_command_long_as_command_int(packet, msg);
 
     // send ACK or NAK
@@ -5629,11 +5723,43 @@ MAV_RESULT GCS_MAVLINK::handle_command_int_packet(const mavlink_command_int_t &p
     case MAV_CMD_REQUEST_MESSAGE:
         return handle_command_request_message(packet);
 
+    // ===== KFT DGCA GCS AUTH COMMANDS - START =====
+    case MAV_CMD_USER_1: {
+        // Challenge request: app sends app_id in param1
+        uint8_t app_id = (uint8_t)packet.param1;
+        const kft_app_entry *app = KFT_GCSAuth::find_app(app_id);
+        if (app == nullptr) {
+            GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "KFT Auth: unknown app %u", app_id);
+            return MAV_RESULT_DENIED;
+        }
+        // Generate challenge
+        KFT_GCSAuth::generate_challenge();
+        // Send challenge via STATUSTEXT (2 messages, 16 bytes each as hex)
+        const uint8_t *ch = KFT_GCSAuth::challenge;
+        char buf[50];
+        snprintf(buf, sizeof(buf),
+                 "KFTCH1:%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x",
+                 ch[0],ch[1],ch[2],ch[3],ch[4],ch[5],ch[6],ch[7],
+                 ch[8],ch[9],ch[10],ch[11],ch[12],ch[13],ch[14],ch[15]);
+        GCS_SEND_TEXT(MAV_SEVERITY_INFO, "%s", buf);
+        snprintf(buf, sizeof(buf),
+                 "KFTCH2:%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x",
+                 ch[16],ch[17],ch[18],ch[19],ch[20],ch[21],ch[22],ch[23],
+                 ch[24],ch[25],ch[26],ch[27],ch[28],ch[29],ch[30],ch[31]);
+        GCS_SEND_TEXT(MAV_SEVERITY_INFO, "%s", buf);
+        return MAV_RESULT_ACCEPTED;
     }
 
+case MAV_CMD_USER_2: {
+        // Handled directly in handle_command_long() to preserve float bit patterns
+        // If we get here via COMMAND_INT, deny it
+        return MAV_RESULT_DENIED;
+    }
+ 
+    }
+ 
     return MAV_RESULT_UNSUPPORTED;
 }
-
 void GCS_MAVLINK::handle_command_int(const mavlink_message_t &msg)
 {
     // decode packet

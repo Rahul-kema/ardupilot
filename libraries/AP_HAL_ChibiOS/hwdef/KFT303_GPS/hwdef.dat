@@ -1,0 +1,17 @@
+include ../f303-periph/hwdef.inc
+
+APJ_BOARD_ID 15
+
+# IST8310 compass via I2C
+#COMPASS IST8310 I2C:0:0x0E false ROTATION_NONE
+
+# support all external compass types
+define HAL_PROBE_EXTERNAL_I2C_COMPASSES
+
+# GPS + MAG support
+define HAL_PERIPH_ENABLE_GPS
+define HAL_PERIPH_ENABLE_MAG
+define HAL_PERIPH_ENABLE_NCP5623_LED_WITHOUT_NOTIFY
+
+# allow F9P moving baseline GPS
+define GPS_MOVING_BASELINE 1

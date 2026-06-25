@@ -67,4 +67,4 @@ for kfile in keys:
     desc += key
     desc_len += key_len
 img = img[:offset] + desc + img[offset+desc_len:]
-open(sys.argv[1], 'wb').write(img)
+open(args.bootloader, 'wb').write(img)

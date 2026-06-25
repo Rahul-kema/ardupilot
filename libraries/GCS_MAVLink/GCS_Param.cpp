@@ -278,6 +278,29 @@ void GCS_MAVLINK::handle_param_set(const mavlink_message_t &msg)
     if (vp == nullptr || isnan(packet.param_value) || isinf(packet.param_value)) {
         return;
     }
+// ===== KFT DGCA COMPLIANCE LOCK - START =====
+    // The following parameters are locked per DGCA CSUAS Clause 7
+    // Drone Model: MOINA
+    // Cert ref: KFT/MOINA/v1.0
+    // DO NOT modify or remove this block without recertification
+    //static const char * const kft_locked_params[] = {
+      //  "FENCE_ALT_MAX",
+        //"FENCE_RADIUS",
+        //"WPNAV_SPEED",
+        //"FRAME_CLASS",
+        //"FRAME_TYPE",
+    //};
+    //for (const char *locked : kft_locked_params) {
+      //  if (strncmp(key, locked, AP_MAX_NAME_SIZE) == 0) {
+        //    GCS_SEND_TEXT(MAV_SEVERITY_WARNING,
+          //                "Param %s locked: DGCA compliance", key);
+            // Send the current (unchanged) value back so the GCS display refreshes
+            //send_parameter_value(key, var_type, vp->cast_to_float(var_type));
+            //return;  // Do not process the SET
+        //}
+    //}
+    // ===== KFT DGCA COMPLIANCE LOCK - END =====
+
 
     float old_value = vp->cast_to_float(var_type);
 

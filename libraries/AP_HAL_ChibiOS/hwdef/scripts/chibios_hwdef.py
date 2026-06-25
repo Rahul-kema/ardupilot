@@ -2921,6 +2921,9 @@ Please run: Tools/scripts/build_bootloaders.py %s
 
     def romfs_add(self, romfs_filename, filename):
         '''add a file to ROMFS'''
+        if not os.path.isabs(filename) and not os.path.exists(filename):
+            hwdef_dir = os.path.dirname(self.hwdef[0])
+            filename = os.path.join(hwdef_dir, filename)
         self.romfs[romfs_filename] = filename
 
     def romfs_wildcard(self, pattern):
